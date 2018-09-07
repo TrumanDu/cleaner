@@ -4,7 +4,7 @@
   "description": "An awesome Kibana plugin for setting elasticsearch index ttl",
   "main": "index.js",
   "kibana": {
-    "version": "6.4.0",
+    "version": "kibana",
     "templateVersion": "8.0.0"
   },
   "scripts": {

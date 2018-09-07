@@ -50,73 +50,84 @@ function deleteIndexs(index, server) {
 
 function cleanerJob(server) {
   return new Promise(async function (resolve) {
-    // console.log('start to execute cleanerJob..' + new Date());
-    const {
-      count
-    } = await client.count({
-      index: cleanerIndex
-    });
+    //console.log('start to execute cleanerJob..' + new Date());
+    try {
+      const {
+        count
+      } = await client.count({
+        index: cleanerIndex
+      });
 
-    if (count === 0) {
-      resolve(true);
-      return;
-    }
-
-    const {
-      hits
-    } = await client.search({
-      index: cleanerIndex,
-      size: count
-    });
-    hits.hits.forEach(element => {
-      let id = element._id;
-      id = id + '*';
-      //暂时仅支持h/d
-      //h:hour
-      //d:day
-      const ttlSetting = element._source.ttl;
-      if (typeof (ttlSetting) === 'undefined' || ttlSetting == null || ttlSetting.length === 0) {
-        server.log(['error', 'cleaner'], 'not set  ttl. ');
+      if (count === 0) {
+        resolve(true);
         return;
       }
-      const unit = ttlSetting.substring(ttlSetting.length - 1, ttlSetting.length);
-      let ttl = 0;
-      if ('d' === unit) {
-        ttl = Number.parseInt(ttlSetting.substring(0, ttlSetting.length - 1)) * 24 * 60 * 60 * 1000;
-      } else if ('h' === unit) {
-        ttl = Number.parseInt(ttlSetting.substring(0, ttlSetting.length - 1)) * 60 * 60 * 1000;
-      } else {
-        server.log(['error', 'cleaner'], 'ttl setting  incorrectly. like 1d,or 1h');
-        return;
-      }
-      client.indices.get({
-        index: id,
-      }, function (error, response) {
-        if (JSON.stringify(response) !== '{}') {
-          for (const key in response) {
-            if (response.hasOwnProperty(
-              key
-            )) {
-              const date = Number.parseInt(response[key].settings.index.creation_date);
-              const curentDate = Date.parse(new Date());
-              if (curentDate >= date + ttl) {
-                //删除过期index
-                deleteIndexs(key, server);
+
+      const {
+        hits
+      } = await client.search({
+        index: cleanerIndex,
+        size: count
+      });
+      hits.hits.forEach(element => {
+        let id = element._id;
+        id = id + '*';
+        //暂时仅支持h/d
+        //h:hour
+        //d:day
+        const ttlSetting = element._source.ttl;
+        if (typeof (ttlSetting) === 'undefined' || ttlSetting == null || ttlSetting.length === 0) {
+          server.log(['error', 'cleaner'], 'not set  ttl. ');
+          return;
+        }
+        const unit = ttlSetting.substring(ttlSetting.length - 1, ttlSetting.length);
+        let ttl = 0;
+        if ('d' === unit) {
+          ttl = Number.parseInt(ttlSetting.substring(0, ttlSetting.length - 1)) * 24 * 60 * 60 * 1000;
+        } else if ('h' === unit) {
+          ttl = Number.parseInt(ttlSetting.substring(0, ttlSetting.length - 1)) * 60 * 60 * 1000;
+        } else {
+          server.log(['error', 'cleaner'], 'ttl setting  incorrectly. like 1d,or 1h');
+          return;
+        }
+        client.indices.get({
+          index: id,
+        }, function (error, response) {
+          if (JSON.stringify(response) !== '{}') {
+            for (const key in response) {
+              if (response.hasOwnProperty(
+                key
+              )) {
+                const date = Number.parseInt(response[key].settings.index.creation_date);
+                const curentDate = Date.parse(new Date());
+                if (curentDate >= date + ttl) {
+                  //删除过期index
+                  deleteIndexs(key, server);
+                }
               }
             }
           }
-        }
 
+        });
       });
-    });
-    resolve(true);
+      resolve(true);
+    } catch (error) {
+      console.error('cleanerJob exec error.', error);
+      resolve(false);
+    }
   });
 }
 
 
 export async function  scheduleJob(times, server) {
+  let i = 0;
   while (true) {
     await sleep(1000 * times);
+    //仅仅为了一小时（或者超过一小时的就按配置策略）打印一条在运行日志
+    if(times > 3600 || i % (3600 / times) === 0) {
+      server.log(['info', 'cleaner'], 'cleanerJob exec normal. ');
+    }
+    i++;
     try {
       await cleanerJob(server);
     } catch (error) {
