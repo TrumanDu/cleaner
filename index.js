@@ -23,7 +23,6 @@ import * as scheduleModuel from './server/scheduleJob';
 
 export default function (kibana) {
   return new kibana.Plugin({
-    require: ['elasticsearch'],
     name: 'cleaner',
     uiExports: {
 

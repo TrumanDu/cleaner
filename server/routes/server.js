@@ -16,90 +16,76 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-const elasticsearch = require('elasticsearch');
 const cleanerIndex = '.cleaner';
-const cleanerType = 'ttl';
 
 export default function (server) {
-  const config = server.config();
 
-  const client = new elasticsearch.Client({
-    host: config.get('elasticsearch.url'),
-    requestTimeout: 120000
-    //log: 'trace'
-  });
   server.route({
     path: '/api/cleaner/_stats',
     method: 'GET',
-    handler(req, reply) {
-      client.indices.stats({
+    handler: async (_req)=>{
+
+      const params = {
         human: true,
-        fields: ['docs', 'store']
-      }, function (err, response) {
-        reply(
-          response
-        );
-      });
+        level: 'indices',
+        metric: ['docs', 'store']
+      };
+      const response = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'indices.stats', params);
+      return response;
     }
   });
 
   server.route({
     path: '/api/cleaner/list',
     method: 'GET',
-    handler(req, reply) {
-      client.count({
-        index: cleanerIndex
-      }, function (error, response) {
-        client.search({
-          index: cleanerIndex,
-          size: response.count
-        }, function (err, response) {
-          reply(
-            response
-          );
-        });
-      });
+    handler: async (_req)=>{
 
+      const params = {
+        index: cleanerIndex
+      };
+      const count = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'count', params);
+      const searchParams = {
+        index: cleanerIndex,
+        size: count
+      };
+      const response = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'search', searchParams);
+      return response;
     }
   });
+
 
   server.route({
     path: '/api/cleaner/index',
     method: 'POST',
-    handler(req, reply) {
+    handler: async (_req)=>{
       const documentData = req.payload;
-      client.index({
+      const params = {
         index: cleanerIndex,
-        type: cleanerType,
         id: documentData.id,
         refresh: 'wait_for',
         body: {
-          // put the partial document under the `doc` key
           type: documentData.type,
-          ttl: documentData.ttl
         }
-      }, function (err, response) {
-        reply(
-          response
-        );
-      });
+      };
+      
+      const response = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'index', params);
+      return response;
     }
   });
 
   server.route({
     path: '/api/cleaner/delete',
     method: 'POST',
-    handler(req, reply) {
-      client.delete({
+    handler: async (_req)=>{
+      const params = {
         index: cleanerIndex,
-        type: cleanerType,
         refresh: 'wait_for',
         id: req.payload.id
-      }, function (err, response) {
-        reply(
-          response
-        );
-      });
+      };
+      
+      const response = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'delete', params);
+      return response;
     }
   });
+
 }

@@ -17,9 +17,7 @@
  * under the License.
  */
 
-const elasticsearch = require('elasticsearch');
 const cleanerIndex = '.cleaner';
-let client = null;
 
 function sleep(time) {
   return new Promise(function (resolve) {
@@ -33,9 +31,10 @@ function sleep(time) {
 
 
 function deleteIndexs(index, server) {
-  client.indices.delete({
-    index: index
-  }, function (error, response) {
+  const cluster = server.plugins.elasticsearch.getCluster('data');
+  cluster.callWithInternalUser('indices.delete', {
+    index: index,
+  }).then(function (error, response) {
     if (error != null) {
       server.log(['error', 'cleaner'], 'delete [' + index + '] index has error.', error);
     }
@@ -52,65 +51,64 @@ function cleanerJob(server) {
   return new Promise(async function (resolve) {
     //console.log('start to execute cleanerJob..' + new Date());
     try {
-      const {
-        count
-      } = await client.count({
-        index: cleanerIndex
-      });
-
-      if (count === 0) {
-        resolve(true);
-        return;
-      }
-
-      const {
-        hits
-      } = await client.search({
-        index: cleanerIndex,
-        size: count
-      });
-      hits.hits.forEach(element => {
-        let id = element._id;
-        id = id + '*';
-        //暂时仅支持h/d
-        //h:hour
-        //d:day
-        const ttlSetting = element._source.ttl;
-        if (typeof (ttlSetting) === 'undefined' || ttlSetting == null || ttlSetting.length === 0) {
-          server.log(['error', 'cleaner'], 'not set  ttl. ');
-          return;
-        }
-        const unit = ttlSetting.substring(ttlSetting.length - 1, ttlSetting.length);
-        let ttl = 0;
-        if ('d' === unit) {
-          ttl = Number.parseInt(ttlSetting.substring(0, ttlSetting.length - 1)) * 24 * 60 * 60 * 1000;
-        } else if ('h' === unit) {
-          ttl = Number.parseInt(ttlSetting.substring(0, ttlSetting.length - 1)) * 60 * 60 * 1000;
-        } else {
-          server.log(['error', 'cleaner'], 'ttl setting  incorrectly. like 1d,or 1h');
-          return;
-        }
-        client.indices.get({
-          index: id,
-        }, function (error, response) {
-          if (JSON.stringify(response) !== '{}') {
-            for (const key in response) {
-              if (response.hasOwnProperty(
-                key
-              )) {
-                const date = Number.parseInt(response[key].settings.index.creation_date);
-                const curentDate = Date.parse(new Date());
-                if (curentDate >= date + ttl) {
-                  //删除过期index
-                  deleteIndexs(key, server);
+      const cluster = server.plugins.elasticsearch.getCluster('data');
+      cluster.callWithInternalUser('count', {
+          index: cleanerIndex
+        }).then((result) => {
+          if (result.count === 0) {
+            resolve(true);
+            return;
+          } else {
+            cluster.callWithInternalUser('search', {
+                index: cleanerIndex,
+                size: count
+            }).then((res) => {
+              res.hits.hits.forEach(element => {
+                let id = element._id;
+                id = id + '*';
+                //暂时仅支持h/d
+                //h:hour
+                //d:day
+                const ttlSetting = element._source.ttl;
+                if (typeof (ttlSetting) === 'undefined' || ttlSetting == null || ttlSetting.length === 0) {
+                  server.log(['error', 'cleaner'], 'not set  ttl. ');
+                  return;
                 }
-              }
-            }
+                const unit = ttlSetting.substring(ttlSetting.length - 1, ttlSetting.length);
+                let ttl = 0;
+                if ('d' === unit) {
+                  ttl = Number.parseInt(ttlSetting.substring(0, ttlSetting.length - 1)) * 24 * 60 * 60 * 1000;
+                } else if ('h' === unit) {
+                  ttl = Number.parseInt(ttlSetting.substring(0, ttlSetting.length - 1)) * 60 * 60 * 1000;
+                } else {
+                  server.log(['error', 'cleaner'], 'ttl setting  incorrectly. like 1d,or 1h');
+                  return;
+                }
+ 
+                cluster.callWithInternalUser('indices.get', {
+                    index: id,
+                }).then((response)=>{
+                  if (JSON.stringify(response) !== '{}') {
+                    for (const key in response) {
+                      if (response.hasOwnProperty(
+                        key
+                      )) {
+                        const date = Number.parseInt(response[key].settings.index.creation_date);
+                        const curentDate = Date.parse(new Date());
+                        if (curentDate >= date + ttl) {
+                          //删除过期index
+                          deleteIndexs(key, server);
+                        }
+                      }
+                    }
+                  }
+                });
+              });
+              resolve(true);
+            });
           }
-
         });
-      });
-      resolve(true);
+
     } catch (error) {
       console.error('cleanerJob exec error.', error);
       resolve(false);
@@ -143,17 +141,14 @@ export async function  scheduleJob(times, server) {
  * @param server
  */
 export async function run(times, server) {
-  client = new elasticsearch.Client({
-    host: server.config().get('elasticsearch.url'),
-    requestTimeout: 120000
-    //log: 'trace'
-  });
+
   //如果不存在cleanerIndex则创建
-  const response = await client.indices.exists({
+  const cluster = server.plugins.elasticsearch.getCluster('data');
+  const response = await cluster.callWithInternalUser('indices.exists', {
     index: cleanerIndex
   });
   if (!response) {
-    const createResponse = await client.indices.create({
+    const createResponse = await cluster.callWithInternalUser('indices.create', {
       index: cleanerIndex
     });
     if(createResponse) {
