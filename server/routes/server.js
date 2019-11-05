@@ -43,10 +43,10 @@ export default function (server) {
       const params = {
         index: cleanerIndex
       };
-      const count = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'count', params);
+      const result = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'count', params);
       const searchParams = {
         index: cleanerIndex,
-        size: count
+        size: result.count
       };
       const response = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'search', searchParams);
       return response;
@@ -58,13 +58,14 @@ export default function (server) {
     path: '/api/cleaner/index',
     method: 'POST',
     handler: async (_req)=>{
-      const documentData = req.payload;
+      const documentData = _req.payload;
       const params = {
         index: cleanerIndex,
         id: documentData.id,
         refresh: 'wait_for',
         body: {
           type: documentData.type,
+          ttl: documentData.ttl
         }
       };
       
@@ -80,7 +81,7 @@ export default function (server) {
       const params = {
         index: cleanerIndex,
         refresh: 'wait_for',
-        id: req.payload.id
+        id: _req.payload.id
       };
       
       const response = await server.plugins.elasticsearch.getCluster('data').callWithRequest(_req, 'delete', params);

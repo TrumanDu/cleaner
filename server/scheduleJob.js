@@ -61,7 +61,7 @@ function cleanerJob(server) {
           } else {
             cluster.callWithInternalUser('search', {
                 index: cleanerIndex,
-                size: count
+                size: result.count
             }).then((res) => {
               res.hits.hits.forEach(element => {
                 let id = element._id;
